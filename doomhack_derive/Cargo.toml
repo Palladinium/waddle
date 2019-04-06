@@ -1,0 +1,15 @@
+[package]
+name = "doomhack_derive"
+version = "0.1.0"
+authors = ["Patrick Chieppe <patrick.chieppe@hotmail.com>"]
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+itertools = "^0.8.0"
+proc-macro2 = "0.4"
+proc-quote = "^0.2.1"
+quote = "0.6.11"
+syn = { version = "0.15.30", features = ["full"] }

@@ -1,0 +1,30 @@
+translation_unit = { SOI ~ global_expr+ ~ EOI }
+global_expr = _{ block | assignment_expr }
+
+block = { identifier ~ "{" ~ block_body ~ "}" }
+block_body = { assignment_expr+ }
+
+assignment_expr = { identifier ~ "=" ~ value ~ ";" }
+
+identifier = @{ ASCII_ALPHA ~ ASCII_ALPHANUMERIC* }
+value = _{ float | integer | quoted_string | bool }
+
+integer = _{ integer_decimal | integer_octal | integer_hex }
+integer_decimal = @{ sign? ~ ((ASCII_NONZERO_DIGIT ~ ASCII_DIGIT+) | ASCII_DIGIT) }
+integer_octal = @{ "0" ~ ASCII_DIGIT+ }
+integer_hex = @{ "0x" ~ ASCII_DIGIT+ }
+
+float = @{ sign? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ (^"e" ~ sign? ~ ASCII_DIGIT+)? }
+
+sign = _{ "+" | "-" }
+
+quoted_string = ${ "\"" ~ string ~ "\"" }
+string = @{ (!"\"" ~ ANY)* }
+
+bool = { "true" | "false" }
+
+line_comment = { "//" ~ (!NEWLINE ~ ANY)* ~ NEWLINE }
+block_comment = { "/*" ~ (!"/*" ~ ANY)* ~ "/*" }
+
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT = _{ line_comment | block_comment }
