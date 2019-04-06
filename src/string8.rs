@@ -1,4 +1,8 @@
-use std::{convert::TryFrom, fmt};
+use std::{
+    convert::TryFrom,
+    fmt::{self, Display, Formatter},
+    str::{self, Utf8Error},
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct String8([u8; 8]);
@@ -36,6 +40,11 @@ impl String8 {
         arr[..usize::min(8, bytes.len())].copy_from_slice(bytes);
         Self(arr)
     }
+
+    pub fn try_as_str(&self) -> Result<&str, Utf8Error> {
+        let p = self.0.iter().position(|&byte| byte != 0).unwrap_or(8);
+        str::from_utf8(&self.0[..p])
+    }
 }
 
 #[derive(Debug)]
@@ -44,8 +53,8 @@ pub enum IntoString8Error {
     Len(usize),
 }
 
-impl fmt::Display for IntoString8Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for IntoString8Error {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             IntoString8Error::Nul(p) => write!(f, "Inner null byte at position {}", p),
             IntoString8Error::Len(p) => write!(f, "String is longer than 8 bytes ({} bytes)", p),
@@ -60,6 +69,14 @@ impl TryFrom<&str> for String8 {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         Self::from_str(s)
+    }
+}
+
+impl<'a> TryFrom<&'a String8> for &'a str {
+    type Error = Utf8Error;
+
+    fn try_from(s: &'a String8) -> Result<Self, Self::Error> {
+        s.try_as_str()
     }
 }
 

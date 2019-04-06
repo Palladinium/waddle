@@ -50,7 +50,7 @@ impl Default for Flags {
 }
 
 impl Flags {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 }

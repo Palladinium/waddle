@@ -1,9 +1,11 @@
 use std::{
     cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
     convert::TryInto,
-    fmt,
+    fmt::{self, Display, Formatter},
     io::{Read, Write},
     rc::Rc,
+    str::Utf8Error,
 };
 
 use itertools::Itertools;
@@ -30,8 +32,8 @@ impl PrettyPos {
     }
 }
 
-impl fmt::Display for PrettyPos {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for PrettyPos {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "line {}, col {}", self.line, self.col)
     }
 }
@@ -40,6 +42,8 @@ impl fmt::Display for PrettyPos {
 pub enum Error {
     Grammar(Box<dyn GrammarError + 'static>),
     IO(std::io::Error),
+    Fmt(fmt::Error),
+    Utf8(Utf8Error),
     ParseBool(std::str::ParseBoolError, PrettyPos),
     ParseInt(std::num::ParseIntError, PrettyPos),
     ParseFloat(std::num::ParseFloatError, PrettyPos),
@@ -53,6 +57,7 @@ pub enum Error {
     InvalidBlock(String, PrettyPos),
     MissingField(&'static str, PrettyPos),
     LineDefSpecial(i16, PrettyPos),
+    SectorSpecial(i16, PrettyPos),
 }
 
 pub trait GrammarError: std::error::Error {}
@@ -80,6 +85,8 @@ impl fmt::Display for Error {
         match self {
             Error::Grammar(e) => write!(f, "Error while parsing UDMF textmap: '{}'", e),
             Error::IO(e) => write!(f, "IO Error while reading UDMF textmap: '{}'", e),
+            Error::Fmt(e) => write!(f, "Format error while reading UDMF textmap: '{}'", e),
+            Error::Utf8(e) => write!(f, "Invalid UTF-8 string: '{}'", e),
             Error::ParseBool(e, p) => write!(f, "Error while parsing bool at {}: '{}'", p, e),
             Error::ParseInt(e, p) => write!(f, "Error while parsing integer at {}: '{}'", p, e),
             Error::ParseFloat(e, p) => write!(f, "Error while parsing float at {}: '{}'", p, e),
@@ -91,6 +98,7 @@ impl fmt::Display for Error {
             Error::InvalidBlock(s, p) => write!(f, "Invalid block at {}: '{}'", p, s),
             Error::MissingField(s, p) => write!(f, "Missing field at {}: '{}'", p, s),
             Error::LineDefSpecial(v, p) => write!(f, "Invalid linedef special at '{}': {}", p, v),
+            Error::SectorSpecial(v, p) => write!(f, "Invalid sector special at '{}': {}", p, v),
         }
     }
 }
@@ -100,6 +108,8 @@ impl std::error::Error for Error {
         match self {
             Error::Grammar(_) => None, // FIXME when I figure out to downcast to a trait object
             Error::IO(e) => Some(e),
+            Error::Fmt(e) => Some(e),
+            Error::Utf8(e) => Some(e),
             Error::ParseBool(e, _) => Some(e),
             Error::ParseInt(e, _) => Some(e),
             Error::ParseFloat(e, _) => Some(e),
@@ -109,6 +119,7 @@ impl std::error::Error for Error {
             Error::InvalidBlock(_, _) => None,
             Error::MissingField(_, _) => None,
             Error::LineDefSpecial(_, _) => None,
+            Error::SectorSpecial(_, _) => None,
         }
     }
 }
@@ -122,6 +133,18 @@ impl<R: pest::RuleType + 'static> From<pest::error::Error<R>> for Error {
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::IO(e)
+    }
+}
+
+impl From<std::fmt::Error> for Error {
+    fn from(e: std::fmt::Error) -> Self {
+        Error::Fmt(e)
+    }
+}
+
+impl From<std::str::Utf8Error> for Error {
+    fn from(e: std::str::Utf8Error) -> Self {
+        Error::Utf8(e)
     }
 }
 
@@ -157,6 +180,7 @@ struct UDMFParser;
 
 trait UDMFObject: Sized {
     fn parse(body: Pair<Rule>) -> Result<Self>;
+    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()>;
 }
 
 fn parse<O: UDMFObject>(body: Pair<Rule>) -> Result<O> {
@@ -171,8 +195,10 @@ struct LineDefData {
 
     flags: line_def::Flags,
     special: line_def::Special,
+    trigger_flags: line_def::TriggerFlags,
 }
 
+const LINE_DEF_BLOCK: &str = "linedef";
 const FROM_IDX_NAME: &str = "v1";
 const TO_IDX_NAME: &str = "v2";
 const LEFT_SIDE_IDX_NAME: &str = "sidefront";
@@ -192,6 +218,15 @@ const ARG1_NAME: &str = "arg1";
 const ARG2_NAME: &str = "arg2";
 const ARG3_NAME: &str = "arg3";
 const ARG4_NAME: &str = "arg4";
+const PLAYER_CROSS_NAME: &str = "playercross";
+const PLAYER_USE_NAME: &str = "playeruse";
+const MONSTER_CROSS_NAME: &str = "monstercross";
+const MONSTER_USE_NAME: &str = "monsteruse";
+const IMPACT_NAME: &str = "impact";
+const PLAYER_PUSH_NAME: &str = "playerpush";
+const MONSTER_PUSH_NAME: &str = "monsterpush";
+const MISSILE_CROSS_NAME: &str = "missilecross";
+const REPEATS_NAME: &str = "repeatspecial";
 
 impl UDMFObject for LineDefData {
     fn parse(body: Pair<Rule>) -> Result<Self> {
@@ -217,7 +252,18 @@ impl UDMFObject for LineDefData {
         let mut arg3 = None;
         let mut arg4 = None;
 
+        let mut player_cross = None;
+        let mut player_use = None;
+        let mut monster_cross = None;
+        let mut monster_use = None;
+        let mut impact = None;
+        let mut player_push = None;
+        let mut monster_push = None;
+        let mut missile_cross = None;
+        let mut repeats = None;
+
         let default_flags = line_def::Flags::default();
+        let default_trigger_flags = line_def::TriggerFlags::default();
 
         let body_span = body.as_span();
 
@@ -262,6 +308,16 @@ impl UDMFObject for LineDefData {
                 (ARG3_NAME, Value::Int(i)) => assign_once(&mut arg3, i, &span)?,
                 (ARG4_NAME, Value::Int(i)) => assign_once(&mut arg4, i, &span)?,
 
+                (PLAYER_CROSS_NAME, Value::Bool(b)) => assign_once(&mut player_cross, b, &span)?,
+                (PLAYER_USE_NAME, Value::Bool(b)) => assign_once(&mut player_use, b, &span)?,
+                (MONSTER_CROSS_NAME, Value::Bool(b)) => assign_once(&mut monster_cross, b, &span)?,
+                (MONSTER_USE_NAME, Value::Bool(b)) => assign_once(&mut monster_use, b, &span)?,
+                (IMPACT_NAME, Value::Bool(b)) => assign_once(&mut impact, b, &span)?,
+                (PLAYER_PUSH_NAME, Value::Bool(b)) => assign_once(&mut player_push, b, &span)?,
+                (MONSTER_PUSH_NAME, Value::Bool(b)) => assign_once(&mut monster_push, b, &span)?,
+                (MISSILE_CROSS_NAME, Value::Bool(b)) => assign_once(&mut missile_cross, b, &span)?,
+                (REPEATS_NAME, Value::Bool(b)) => assign_once(&mut repeats, b, &span)?,
+
                 (k, v) => return invalid_assignment(k, v, &span),
             }
         }
@@ -303,6 +359,27 @@ impl UDMFObject for LineDefData {
             }
             .try_into()
             .map_err(|_| Error::LineDefSpecial(special.unwrap(), PrettyPos::new(&body_span)))?,
+
+            trigger_flags: line_def::TriggerFlags {
+                player_cross: player_cross.unwrap_or(default_trigger_flags.player_cross),
+                player_use: player_use.unwrap_or(default_trigger_flags.player_use),
+                monster_cross: monster_cross.unwrap_or(default_trigger_flags.monster_cross),
+                monster_use: monster_use.unwrap_or(default_trigger_flags.monster_use),
+                impact: impact.unwrap_or(default_trigger_flags.impact),
+                player_push: player_push.unwrap_or(default_trigger_flags.player_push),
+                monster_push: monster_push.unwrap_or(default_trigger_flags.monster_push),
+                missile_cross: missile_cross.unwrap_or(default_trigger_flags.missile_cross),
+                repeats: repeats.unwrap_or(default_trigger_flags.repeats),
+            },
+        })
+    }
+
+    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+        writer.write_block(LINE_DEF_BLOCK, |block| {
+            block.write_assignment(FROM_IDX_NAME, &Value::Int(self.from_idx as i16))?;
+            block.write_assignment(TO_IDX_NAME, &Value::Int(self.to_idx as i16))?;
+
+            Ok(())
         })
     }
 }
@@ -316,12 +393,14 @@ pub struct SideDefData {
     pub lower_texture: String8,
 }
 
+const SIDE_DEF_BLOCK: &str = "sidedef";
 const OFFSET_X_NAME: &str = "offsetx";
 const OFFSET_Y_NAME: &str = "offsety";
 const SECTOR_IDX_NAME: &str = "sector";
 const UPPER_TEXTURE_NAME: &str = "texturetop";
 const MIDDLE_TEXTURE_NAME: &str = "texturemiddle";
 const LOWER_TEXTURE_NAME: &str = "texturebottom";
+const DEFAULT_TEXTURE: &str = "-";
 
 impl UDMFObject for SideDefData {
     fn parse(body: Pair<Rule>) -> Result<Self> {
@@ -368,9 +447,40 @@ impl UDMFObject for SideDefData {
             sector_idx: sector_idx
                 .ok_or_else(|| Error::MissingField(SECTOR_IDX_NAME, PrettyPos::new(&body_span)))?,
 
-            upper_texture: upper_texture.unwrap_or(String8::from_str_unchecked("-")),
-            middle_texture: middle_texture.unwrap_or(String8::from_str_unchecked("-")),
-            lower_texture: lower_texture.unwrap_or(String8::from_str_unchecked("-")),
+            upper_texture: upper_texture.unwrap_or(String8::from_str_unchecked(DEFAULT_TEXTURE)),
+            middle_texture: middle_texture.unwrap_or(String8::from_str_unchecked(DEFAULT_TEXTURE)),
+            lower_texture: lower_texture.unwrap_or(String8::from_str_unchecked(DEFAULT_TEXTURE)),
+        })
+    }
+
+    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+        writer.write_block(SIDE_DEF_BLOCK, |block| {
+            if self.offset.x != 0 {
+                block.write_assignment(OFFSET_X_NAME, &Value::Int(self.offset.x))?;
+            }
+            if self.offset.y != 0 {
+                block.write_assignment(OFFSET_Y_NAME, &Value::Int(self.offset.y))?;
+            }
+
+            let upper_texture: &str = (&self.upper_texture).try_into()?;
+            if upper_texture != DEFAULT_TEXTURE {
+                block
+                    .write_assignment(UPPER_TEXTURE_NAME, &Value::Str(upper_texture.to_string()))?;
+            }
+            let middle_texture: &str = (&self.middle_texture).try_into()?;
+            if middle_texture != DEFAULT_TEXTURE {
+                block.write_assignment(
+                    MIDDLE_TEXTURE_NAME,
+                    &Value::Str(middle_texture.to_string()),
+                )?;
+            }
+            let lower_texture: &str = (&self.lower_texture).try_into()?;
+            if lower_texture != DEFAULT_TEXTURE {
+                block
+                    .write_assignment(LOWER_TEXTURE_NAME, &Value::Str(lower_texture.to_string()))?;
+            }
+
+            Ok(())
         })
     }
 }
@@ -385,12 +495,14 @@ pub struct SectorData {
     tag: i16,
 }
 
+const SECTOR_BLOCK: &str = "sector";
 const FLOOR_HEIGHT_NAME: &str = "heightfloor";
 const CEILING_HEIGHT_NAME: &str = "heightceiling";
 const FLOOR_FLAT_NAME: &str = "texturefloor";
 const CEILING_FLAT_NAME: &str = "textureceiling";
 const LIGHT_LEVEL_NAME: &str = "lightlevel";
 const TAG_NAME: &str = "id";
+const DEFAULT_LIGHT_LEVEL: u8 = 160;
 
 impl UDMFObject for SectorData {
     fn parse(body: Pair<Rule>) -> Result<Self> {
@@ -399,9 +511,8 @@ impl UDMFObject for SectorData {
         let mut floor_flat = None;
         let mut ceiling_flat = None;
         let mut light_level = None;
+        let mut special = None;
         let mut tag = None;
-
-        // FIXME special
 
         let body_span = body.as_span();
 
@@ -424,6 +535,7 @@ impl UDMFObject for SectorData {
                 (LIGHT_LEVEL_NAME, Value::Int(i)) if i >= 0 && i < 256 => {
                     assign_once(&mut light_level, i as u8, &span)?
                 }
+                (SPECIAL_NAME, Value::Int(i)) => assign_once(&mut special, i, &span)?,
                 (TAG_NAME, Value::Int(i)) => assign_once(&mut tag, i, &span)?,
 
                 (k, v) => return invalid_assignment(k, v, &span),
@@ -440,13 +552,51 @@ impl UDMFObject for SectorData {
                 Error::MissingField(CEILING_FLAT_NAME, PrettyPos::new(&body_span))
             })?,
 
-            light_level: light_level.unwrap_or(160),
-            special: sector::Special::default(),
+            light_level: light_level.unwrap_or(DEFAULT_LIGHT_LEVEL),
+            special: special
+                .unwrap_or(0)
+                .try_into()
+                .map_err(|e| Error::SectorSpecial(e, PrettyPos::new(&body_span)))?,
             tag: tag.unwrap_or(0),
+        })
+    }
+
+    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+        writer.write_block(SECTOR_BLOCK, |block| {
+            if self.floor_height != 0 {
+                block.write_assignment(FLOOR_HEIGHT_NAME, &Value::Int(self.floor_height))?;
+            }
+            if self.ceiling_height != 0 {
+                block.write_assignment(CEILING_HEIGHT_NAME, &Value::Int(self.ceiling_height))?;
+            }
+
+            block.write_assignment(
+                FLOOR_FLAT_NAME,
+                &Value::Str(self.floor_flat.try_as_str()?.to_owned()),
+            )?;
+            block.write_assignment(
+                CEILING_FLAT_NAME,
+                &Value::Str(self.ceiling_flat.try_as_str()?.to_owned()),
+            )?;
+
+            if self.light_level != DEFAULT_LIGHT_LEVEL {
+                block.write_assignment(LIGHT_LEVEL_NAME, &Value::Int(self.light_level as i16))?;
+            }
+            let special: i16 = self.special.into();
+            if special != 0 {
+                block.write_assignment(SPECIAL_NAME, &Value::Int(special))?;
+            }
+
+            if self.tag != 0 {
+                block.write_assignment(TAG_NAME, &Value::Int(self.tag))?;
+            }
+
+            Ok(())
         })
     }
 }
 
+const VERTEX_BLOCK: &str = "vertex";
 const X_NAME: &str = "x";
 const Y_NAME: &str = "y";
 
@@ -481,8 +631,18 @@ impl UDMFObject for Vertex {
             ),
         })
     }
+
+    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+        writer.write_block(VERTEX_BLOCK, |block| {
+            block.write_assignment(X_NAME, &Value::Float(self.position.x.into()))?;
+            block.write_assignment(Y_NAME, &Value::Float(self.position.y.into()))?;
+
+            Ok(())
+        })
+    }
 }
 
+const THING_BLOCK: &str = "thing";
 const HEIGHT_NAME: &str = "height";
 const ANGLE_NAME: &str = "angle";
 const TYPE_NAME: &str = "type";
@@ -622,6 +782,78 @@ impl UDMFObject for Thing {
             special: thing::Special::None,
         })
     }
+
+    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+        writer.write_block(THING_BLOCK, |block| {
+            if self.height != 0 {
+                block.write_assignment(HEIGHT_NAME, &Value::Int(self.height))?;
+            }
+            if self.angle != 0 {
+                block.write_assignment(ANGLE_NAME, &Value::Int(self.angle))?;
+            }
+
+            block.write_assignment(TYPE_NAME, &Value::Int(self.type_))?;
+
+            let default_flags = thing::Flags::default();
+
+            if self.flags.skill1 != default_flags.skill1 {
+                block.write_assignment(SKILL1_NAME, &Value::Bool(self.flags.skill1))?;
+            }
+            if self.flags.skill2 != default_flags.skill2 {
+                block.write_assignment(SKILL2_NAME, &Value::Bool(self.flags.skill2))?;
+            }
+            if self.flags.skill3 != default_flags.skill3 {
+                block.write_assignment(SKILL3_NAME, &Value::Bool(self.flags.skill3))?;
+            }
+            if self.flags.skill4 != default_flags.skill4 {
+                block.write_assignment(SKILL4_NAME, &Value::Bool(self.flags.skill4))?;
+            }
+            if self.flags.skill5 != default_flags.skill5 {
+                block.write_assignment(SKILL5_NAME, &Value::Bool(self.flags.skill5))?;
+            }
+            if self.flags.ambush != default_flags.ambush {
+                block.write_assignment(AMBUSH_NAME, &Value::Bool(self.flags.ambush))?;
+            }
+            if self.flags.single != default_flags.single {
+                block.write_assignment(SINGLE_NAME, &Value::Bool(self.flags.single))?;
+            }
+            if self.flags.dm != default_flags.dm {
+                block.write_assignment(DM_NAME, &Value::Bool(self.flags.dm))?;
+            }
+            if self.flags.coop != default_flags.coop {
+                block.write_assignment(COOP_NAME, &Value::Bool(self.flags.coop))?;
+            }
+            if self.flags.mbf_friend != default_flags.mbf_friend {
+                block.write_assignment(MBF_FRIEND_NAME, &Value::Bool(self.flags.mbf_friend))?;
+            }
+            if self.flags.class1 != default_flags.class1 {
+                block.write_assignment(CLASS1_NAME, &Value::Bool(self.flags.class1))?;
+            }
+            if self.flags.class2 != default_flags.class2 {
+                block.write_assignment(CLASS2_NAME, &Value::Bool(self.flags.class2))?;
+            }
+            if self.flags.class3 != default_flags.class3 {
+                block.write_assignment(CLASS3_NAME, &Value::Bool(self.flags.class3))?;
+            }
+            if self.flags.dormant != default_flags.dormant {
+                block.write_assignment(DORMANT_NAME, &Value::Bool(self.flags.dormant))?;
+            }
+            if self.flags.invisible != default_flags.invisible {
+                block.write_assignment(INVISIBLE_NAME, &Value::Bool(self.flags.invisible))?;
+            }
+            if self.flags.npc != default_flags.npc {
+                block.write_assignment(NPC_NAME, &Value::Bool(self.flags.npc))?;
+            }
+            if self.flags.translucent != default_flags.translucent {
+                block.write_assignment(TRANSLUCENT_NAME, &Value::Bool(self.flags.translucent))?;
+            }
+            if self.flags.strife_ally != default_flags.strife_ally {
+                block.write_assignment(STRIFE_ALLY_NAME, &Value::Bool(self.flags.strife_ally))?;
+            }
+
+            Ok(())
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -637,7 +869,7 @@ impl fmt::Display for Value {
         match self {
             Value::Int(v) => write!(f, "{}", v),
             Value::Float(v) => write!(f, "{}", v),
-            Value::Str(v) => write!(f, "{}", v),
+            Value::Str(v) => write!(f, "\"{}\"", v),
             Value::Bool(v) => write!(f, "{}", v),
         }
     }
@@ -664,6 +896,10 @@ impl UDMFObject for Value {
             }
             _ => panic!("Invalid rule as value: {:?}", pair.as_rule()),
         })
+    }
+
+    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+        Ok(write!(writer.writer(), "{}", self)?)
     }
 }
 
@@ -707,8 +943,112 @@ fn invalid_block<T>(ident: &str, span: &Span<'_>) -> Result<T> {
     Err(Error::InvalidBlock(ident.to_owned(), PrettyPos::new(span)))
 }
 
+trait UDMFWriter: Sized {
+    type Writer: Write;
+    fn writer(&mut self) -> &mut Self::Writer;
+
+    fn indent(&self) -> usize;
+
+    fn write_comment(&mut self, text: &str) -> Result<()> {
+        let indent = self.indent();
+        Ok(writeln!(self.writer(), "{:2$}//{}", "", text, indent)?)
+    }
+
+    fn write_assignment(&mut self, key: &str, value: &Value) -> Result<()> {
+        let indent = self.indent();
+        Ok(writeln!(
+            self.writer(),
+            "{:3$}{}={};",
+            "",
+            key,
+            value,
+            indent
+        )?)
+    }
+
+    fn write_block<F>(&mut self, key: &str, mut f: F) -> Result<()>
+    where
+        F: FnMut(&mut UDMFBlockWriter<Self>) -> Result<()>,
+    {
+        let mut block_writer = UDMFBlockWriter(self);
+        block_writer.start(key)?;
+        f(&mut block_writer)?;
+        block_writer.end()
+    }
+}
+
+struct UDMFBlockWriter<'w, W>(&'w mut W);
+
+impl<'w, W: UDMFWriter> UDMFBlockWriter<'w, W> {
+    fn start(&mut self, key: &str) -> Result<()> {
+        let indent = self.0.indent();
+        Ok(writeln!(self.0.writer(), "{:2$}{} {{", "", key, indent)?)
+    }
+
+    fn end(&mut self) -> Result<()> {
+        let indent = self.0.indent();
+        Ok(writeln!(self.0.writer(), "{:1$}}}", "", indent)?)
+    }
+}
+
+impl<'w, W: UDMFWriter> UDMFWriter for UDMFBlockWriter<'w, W> {
+    type Writer = W::Writer;
+
+    fn writer(&mut self) -> &mut Self::Writer {
+        self.0.writer()
+    }
+
+    fn indent(&self) -> usize {
+        self.0.indent() + 2
+    }
+}
+
+impl<W: Write> UDMFWriter for W {
+    type Writer = Self;
+
+    fn writer(&mut self) -> &mut Self::Writer {
+        self
+    }
+
+    fn indent(&self) -> usize {
+        0
+    }
+}
+
 impl Map {
     pub fn write_udmf_textmap<W: Write>(&self, writer: &mut W) -> Result<()> {
+        writer.write_comment("Written by this thing")?; // FIXME name
+        writer.write_assignment("namespace", &Value::Str("zdoom".to_string()))?;
+
+        let vertices: BTreeMap<Vertex, usize> = self
+            .linedefs
+            .iter()
+            .flat_map(|l| vec![l.from.borrow().clone(), l.to.borrow().clone()])
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (v, i))
+            .collect();
+
+        /*
+                let sidedefs: BTreeMap<SideDef> = self
+                    .linedefs
+                    .iter()
+                    .flat_map(|l| {
+                        if let Some(right) = l.right_side {
+                            vec![l.left_side.borrow().clone(), right.borrow().clone()]
+                        } else {
+                            vec![l.left_side.borrow().clone()]
+                        }
+                    })
+                    .collect();
+        */
+
+        for (vertex, i) in vertices {
+            writer.write_comment(&format!("#{}", i))?;
+            vertex.write(writer)?;
+        }
+
         Ok(())
     }
 
@@ -739,11 +1079,11 @@ impl Map {
                         let (ident, block) = parse_block(global_expression);
 
                         match ident {
-                            "vertex" => vertices.push(Rc::new(RefCell::new(parse(block)?))),
-                            "linedef" => linedef_data.push(parse(block)?),
-                            "sector" => sector_data.push(parse(block)?),
-                            "sidedef" => sidedef_data.push(parse(block)?),
-                            "thing" => things.push(parse(block)?),
+                            VERTEX_BLOCK => vertices.push(Rc::new(RefCell::new(parse(block)?))),
+                            LINE_DEF_BLOCK => linedef_data.push(parse(block)?),
+                            SECTOR_BLOCK => sector_data.push(parse(block)?),
+                            SIDE_DEF_BLOCK => sidedef_data.push(parse(block)?),
+                            THING_BLOCK => things.push(parse(block)?),
                             id => return invalid_block(id, &span),
                         }
                     }
@@ -785,6 +1125,7 @@ impl Map {
 
                 flags: ld.flags,
                 special: ld.special,
+                trigger_flags: ld.trigger_flags,
             })
             .collect();
 
@@ -863,6 +1204,7 @@ mod tests {
                 impassable: true,
                 ..line_def::Flags::default()
             },
+            trigger_flags: line_def::TriggerFlags::default(),
         });
         expected.linedefs.push(LineDef {
             from: vertices[2].clone(),
@@ -874,6 +1216,7 @@ mod tests {
                 impassable: true,
                 ..line_def::Flags::default()
             },
+            trigger_flags: line_def::TriggerFlags::default(),
         });
         expected.linedefs.push(LineDef {
             from: vertices[3].clone(),
@@ -885,6 +1228,7 @@ mod tests {
                 impassable: true,
                 ..line_def::Flags::default()
             },
+            trigger_flags: line_def::TriggerFlags::default(),
         });
         expected.linedefs.push(LineDef {
             from: vertices[0].clone(),
@@ -896,6 +1240,7 @@ mod tests {
                 impassable: true,
                 ..line_def::Flags::default()
             },
+            trigger_flags: line_def::TriggerFlags::default(),
         });
 
         expected.sectors.push(Sector {

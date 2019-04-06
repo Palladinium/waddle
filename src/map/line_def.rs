@@ -15,6 +15,7 @@ pub struct LineDef {
 
     pub flags: Flags,
     pub special: Special,
+    pub trigger_flags: TriggerFlags,
 }
 
 /// Boolean flags associated with a `LineDef`
@@ -68,7 +69,7 @@ impl From<Flags> for i16 {
 }
 
 #[derive(Default, PartialEq, Eq, Hash, Debug, Clone)]
-pub struct Activation {
+pub struct TriggerFlags {
     pub player_cross: bool,
     pub player_use: bool,
     pub monster_cross: bool,
@@ -84,7 +85,7 @@ pub struct Activation {
 #[derive(PartialEq, Eq, Hash, Debug, LineDefSpecial)]
 #[doom_special(DOOMSpecial)]
 #[udmf_special(UDMFSpecial)]
-#[activation_flags(Activation)]
+#[trigger_flags(TriggerFlags)]
 pub enum Special {
     #[udmf(0)]
     #[doom(id = 0, args = (), triggers = [])]

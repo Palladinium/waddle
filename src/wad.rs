@@ -1,23 +1,17 @@
-use std::io::{Read, Write};
+pub struct ACSLibrary;
+pub struct ColorMap;
+pub struct Filter;
+pub struct Flat;
+pub struct Graphic;
+pub struct HiRes;
+pub struct Music;
+pub struct Patch;
+pub struct Sound;
+pub struct Sprite;
+pub struct Texture;
+pub struct Voice;
+pub struct Voxel;
 
-use crate::String8;
-
-struct ACSLibrary;
-struct ColorMap;
-struct Filter;
-struct Flat;
-struct Graphic;
-struct HiRes;
-struct Music;
-struct Patch;
-struct Sound;
-struct Sprite;
-struct Texture;
-struct Voice;
-struct Voxel;
-
-pub struct Wad {
-    acs_libraries: Vec<ACSLibrary>,
-}
+pub struct Wad {}
 
 impl Wad {}

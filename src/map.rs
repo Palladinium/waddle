@@ -20,7 +20,7 @@ pub struct Map {
 }
 
 impl Map {
-    fn new(name: String8) -> Self {
+    pub fn new(name: String8) -> Self {
         Self {
             name,
             ..Self::default()
