@@ -19,7 +19,7 @@ use syn::{
 
 #[proc_macro_derive(
     LineDefSpecial,
-    attributes(udmf_special, doom_special, activation_flags, udmf, doom)
+    attributes(udmf_special, doom_special, trigger_flags, udmf, doom)
 )]
 pub fn linedef_special_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -35,7 +35,7 @@ struct SpecialData {
     linedef_special: Ident,
     udmf_special: Ident,
     doom_special: Ident,
-    activation_flags: Ident,
+    trigger_flags: Ident,
     specials: Vec<Special>,
 }
 
@@ -45,11 +45,7 @@ impl SpecialData {
             linedef_special: input.ident.clone(),
             udmf_special: parse_attribute("udmf_special", &input.attrs, input.ident.span())?,
             doom_special: parse_attribute("doom_special", &input.attrs, input.ident.span())?,
-            activation_flags: parse_attribute(
-                "activation_flags",
-                &input.attrs,
-                input.ident.span(),
-            )?,
+            trigger_flags: parse_attribute("trigger_flags", &input.attrs, input.ident.span())?,
 
             specials: if let Data::Enum(en) = &input.data {
                 en.variants
@@ -230,7 +226,7 @@ impl<T: Parse> Parse for Array<T> {
 struct DoomMapping {
     value: i16,
     arg_mappings: Vec<DoomMappingArg>,
-    activation_flags: Vec<Ident>,
+    trigger_flags: Vec<Ident>,
 }
 
 impl Parse for DoomMapping {
@@ -243,7 +239,7 @@ impl Parse for DoomMapping {
         Ok(Self {
             value: parse_literal(args.get("id")?)?,
             arg_mappings: arg_mappings_tuple.to_vec(),
-            activation_flags: flags_array.to_vec(),
+            trigger_flags: flags_array.to_vec(),
         })
     }
 }
@@ -323,12 +319,12 @@ impl SpecialData {
 
         tokens.extend(quote! {
             impl std::convert::TryFrom<#udmf_special> for #linedef_special {
-                type Error = ();
+                type Error = #udmf_special;
 
                 fn try_from(udmf: #udmf_special) -> Result<Self, Self::Error> {
                     match udmf.value {
                         #(#match_arms,)*
-                        _ => Err(()),
+                        _ => Err(udmf),
                     }
                 }
             }
@@ -369,7 +365,7 @@ impl SpecialData {
     fn from_doom_tokens(&self, tokens: &mut TokenStream) {
         let doom_special = &self.doom_special;
         let linedef_special = &self.linedef_special;
-        let activation_flags = &self.activation_flags;
+        let trigger_flags = &self.trigger_flags;
 
         let match_arms = self.specials.iter().map(|special| {
             let variant = &special.ident;
@@ -387,29 +383,29 @@ impl SpecialData {
                     });
 
                 let flags = doom_mapping
-                    .activation_flags
+                    .trigger_flags
                     .iter()
                     .map(|f| quote! { #f: true });
 
                 quote! {
                     #doom_value => Ok((
                         #linedef_special::#variant { #(#fields,)* },
-                        #activation_flags {  #(#flags,)* ..#activation_flags::default()},
+                        #trigger_flags {  #(#flags,)* ..#trigger_flags::default() },
                     ))
                 }
             })
         });
 
         tokens.extend(quote! {
-            impl std::convert::TryFrom<#doom_special> for (#linedef_special, #activation_flags) {
-                type Error = ();
+            impl std::convert::TryFrom<#doom_special> for (#linedef_special, #trigger_flags) {
+                type Error = #doom_special;
 
                 fn try_from(doom: #doom_special) -> Result<Self, Self::Error> {
                     let tag = doom.tag;
                     match doom.value {
                         #(#(#match_arms,)*)*
 
-                        _ => Err(()),
+                        _ => Err(doom),
                     }
                 }
             }

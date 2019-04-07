@@ -1,6 +1,6 @@
 [package]
-name = "doomhack_derive"
-version = "0.1.0"
+name = "waddle_derive"
+version = "0.0.0"
 authors = ["Patrick Chieppe <patrick.chieppe@hotmail.com>"]
 edition = "2018"
 

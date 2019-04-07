@@ -1,5 +1,5 @@
 use bitfield::Bit;
-use doomhack_derive::LineDefSpecial;
+use waddle_derive::LineDefSpecial;
 
 use crate::{
     map::{SideDef, Vertex},
