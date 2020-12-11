@@ -1,4 +1,5 @@
 use crate::String8;
+use generational_arena::Arena;
 
 pub mod line_def;
 pub mod sector;
@@ -11,19 +12,21 @@ pub use self::{
     line_def::LineDef, sector::Sector, side_def::SideDef, thing::Thing, vertex::Vertex,
 };
 
-#[derive(Default, PartialEq, Eq, Debug)]
+#[derive(Debug)]
 pub struct Map {
     pub name: String8,
-    pub linedefs: Vec<LineDef>,
-    pub sectors: Vec<Sector>,
-    pub things: Vec<Thing>,
+    pub linedefs: Arena<LineDef>,
+    pub sectors: Arena<Sector>,
+    pub things: Arena<Thing>,
 }
 
 impl Map {
     pub fn new(name: String8) -> Self {
         Self {
             name,
-            ..Self::default()
+            linedefs: Arena::new(),
+            sectors: Arena::new(),
+            things: Arena::new(),
         }
     }
 }

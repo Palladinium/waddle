@@ -8,7 +8,7 @@ edition = "2018"
 proc-macro = true
 
 [dependencies]
-itertools = "^0.8.0"
-proc-macro2 = "0.4"
-proc-quote = "^0.2.1"
-syn = { version = "0.15.30", features = ["full"] }
+itertools = "0.9.0"
+proc-macro2 = "1.0.24"
+proc-quote = "0.3.2"
+syn = { version = "1.0.54", features = ["full"] }

@@ -1,4 +1,3 @@
-#![feature(iter_copied)]
 #![recursion_limit = "128"]
 
 extern crate proc_macro;
@@ -262,8 +261,8 @@ fn parse_attribute<T: Parse>(name: &str, attributes: &[Attribute], span: Span) -
 fn try_parse_attribute<T: Parse>(name: &str, attributes: &[Attribute]) -> Result<Option<T>> {
     attributes
         .iter()
-        .find(|a| a.path.is_ident(Ident::new(name, Span::call_site())))
-        .map(|a| syn::parse2::<ParenAttribute<T>>(a.tts.clone()).map(|a| a.value))
+        .find(|a| a.path.is_ident(&Ident::new(name, Span::call_site())))
+        .map(|a| syn::parse2::<ParenAttribute<T>>(a.tokens.clone()).map(|a| a.value))
         .transpose()
 }
 
@@ -273,8 +272,8 @@ fn collect_attributes<'a, T: Parse>(
 ) -> impl Iterator<Item = Result<T>> + 'a {
     attributes
         .iter()
-        .filter(move |a| a.path.is_ident(Ident::new(name, Span::call_site())))
-        .map(|a| syn::parse2::<ParenAttribute<T>>(a.tts.clone()).map(|a| a.value))
+        .filter(move |a| a.path.is_ident(&Ident::new(name, Span::call_site())))
+        .map(|a| syn::parse2::<ParenAttribute<T>>(a.tokens.clone()).map(|a| a.value))
 }
 
 struct ParenAttribute<T> {

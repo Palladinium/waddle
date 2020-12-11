@@ -1023,7 +1023,7 @@ impl Map {
         let vertices: BTreeMap<Vertex, usize> = self
             .linedefs
             .iter()
-            .flat_map(|l| vec![l.from.borrow().clone(), l.to.borrow().clone()])
+            .flat_map(|l| vec![l.1.from.borrow().clone(), l.1.to.borrow().clone()])
             .collect::<BTreeSet<_>>()
             .into_iter()
             .enumerate()
@@ -1152,7 +1152,7 @@ impl Map {
             name,
             linedefs,
             sectors,
-            things,
+            things: things.into_iter().collect(),
         })
     }
 }
