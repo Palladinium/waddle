@@ -1,3 +1,5 @@
+use std::cmp::{Eq, PartialEq};
+
 use crate::String8;
 use generational_arena::Arena;
 
@@ -30,6 +32,17 @@ impl Map {
         }
     }
 }
+
+impl PartialEq for Map {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.name == rhs.name
+            && itertools::equal(self.linedefs.iter(), rhs.linedefs.iter())
+            && itertools::equal(self.sectors.iter(), rhs.sectors.iter())
+            && itertools::equal(self.things.iter(), rhs.things.iter())
+    }
+}
+
+impl Eq for Map {}
 
 #[cfg(test)]
 mod tests {

@@ -1194,7 +1194,7 @@ mod tests {
             4
         ];
 
-        expected.linedefs.push(LineDef {
+        expected.linedefs.insert(LineDef {
             from: vertices[1].clone(),
             to: vertices[0].clone(),
             left_side: sidedefs[0].clone(),
@@ -1206,7 +1206,7 @@ mod tests {
             },
             trigger_flags: line_def::TriggerFlags::default(),
         });
-        expected.linedefs.push(LineDef {
+        expected.linedefs.insert(LineDef {
             from: vertices[2].clone(),
             to: vertices[1].clone(),
             left_side: sidedefs[3].clone(),
@@ -1218,7 +1218,7 @@ mod tests {
             },
             trigger_flags: line_def::TriggerFlags::default(),
         });
-        expected.linedefs.push(LineDef {
+        expected.linedefs.insert(LineDef {
             from: vertices[3].clone(),
             to: vertices[2].clone(),
             left_side: sidedefs[2].clone(),
@@ -1230,7 +1230,7 @@ mod tests {
             },
             trigger_flags: line_def::TriggerFlags::default(),
         });
-        expected.linedefs.push(LineDef {
+        expected.linedefs.insert(LineDef {
             from: vertices[0].clone(),
             to: vertices[3].clone(),
             left_side: sidedefs[1].clone(),
@@ -1243,7 +1243,7 @@ mod tests {
             trigger_flags: line_def::TriggerFlags::default(),
         });
 
-        expected.sectors.push(Sector {
+        expected.sectors.insert(Sector {
             sides: sidedefs[0..4].iter().cloned().collect(),
             floor_flat: String8::from_str_unchecked("MFLR8_1"),
             ceiling_flat: String8::from_str_unchecked("MFLR8_1"),
