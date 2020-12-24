@@ -40,44 +40,81 @@ struct SpecialData {
 
 impl SpecialData {
     fn parse(input: DeriveInput) -> Result<Self> {
+        let mut udmf_value_buckets = HashMap::new();
+        let mut doom_value_buckets = HashMap::new();
+
+        let specials: Vec<_> = if let Data::Enum(en) = &input.data {
+            en.variants
+                .iter()
+                .map(|variant| {
+                    let fields: Vec<_> = variant
+                        .fields
+                        .iter()
+                        .map(|field| field.ident.as_ref().cloned().unwrap())
+                        .collect();
+
+                    let udmf_value = parse_literal(parse_attribute(
+                        "udmf",
+                        &variant.attrs,
+                        variant.ident.span(),
+                    )?)?;
+
+                    udmf_value_buckets
+                        .entry(udmf_value)
+                        .or_insert_with(Vec::new)
+                        .push(variant.ident.span());
+
+                    let doom_mappings: Vec<DoomMapping> =
+                        collect_attributes::<DoomMapping>("doom", &variant.attrs)
+                            .collect::<Result<Vec<_>>>()?;
+
+                    for doom_mapping in doom_mappings.iter() {
+                        doom_value_buckets
+                            .entry(doom_mapping.value)
+                            .or_insert_with(Vec::new)
+                            .push(variant.ident.span());
+                    }
+
+                    Ok(Special {
+                        ident: variant.ident.clone(),
+                        udmf_value,
+                        doom_mappings,
+                        fields,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            return Err(parse::Error::new(
+                input.ident.span(),
+                "Expected enum linedefspecial",
+            ));
+        };
+
+        for (udmf_value, spans) in udmf_value_buckets.iter() {
+            if spans.len() > 1 {
+                return Err(parse::Error::new(
+                    spans[1],
+                    format!("Duplicate UDMF special with value {}", udmf_value),
+                ));
+            }
+        }
+
+        for (doom_value, spans) in doom_value_buckets.iter() {
+            if spans.len() > 1 {
+                return Err(parse::Error::new(
+                    spans[1],
+                    format!("Duplicate Doom special with value {}", doom_value),
+                ));
+            }
+        }
+
         Ok(Self {
             linedef_special: input.ident.clone(),
             udmf_special: parse_attribute("udmf_special", &input.attrs, input.ident.span())?,
             doom_special: parse_attribute("doom_special", &input.attrs, input.ident.span())?,
             trigger_flags: parse_attribute("trigger_flags", &input.attrs, input.ident.span())?,
 
-            specials: if let Data::Enum(en) = &input.data {
-                en.variants
-                    .iter()
-                    .map(|variant| {
-                        let fields: Vec<_> = variant
-                            .fields
-                            .iter()
-                            .map(|field| field.ident.as_ref().cloned().unwrap())
-                            .collect();
-
-                        let doom_mappings: Vec<DoomMapping> =
-                            collect_attributes::<DoomMapping>("doom", &variant.attrs)
-                                .collect::<Result<Vec<_>>>()?;
-
-                        Ok(Special {
-                            ident: variant.ident.clone(),
-                            udmf_value: parse_literal(parse_attribute(
-                                "udmf",
-                                &variant.attrs,
-                                variant.ident.span(),
-                            )?)?,
-                            fields,
-                            doom_mappings,
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?
-            } else {
-                return Err(parse::Error::new(
-                    input.ident.span(),
-                    "Expected enum linedefspecial",
-                ));
-            },
+            specials,
         })
     }
 }
@@ -89,7 +126,7 @@ struct Special {
     doom_mappings: Vec<DoomMapping>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum DoomMappingArg {
     Tag,
     Constant(i16),
@@ -222,6 +259,7 @@ impl<T: Parse> Parse for Array<T> {
     }
 }
 
+#[derive(PartialEq, Eq, Hash)]
 struct DoomMapping {
     value: i16,
     arg_mappings: Vec<DoomMappingArg>,
@@ -310,9 +348,21 @@ impl SpecialData {
                 let idx = Literal::usize_unsuffixed(i);
                 quote! { #field: udmf.args.#idx }
             });
+            let fields_len = special.fields.len();
+            let extra_fields_checks = (fields_len..5).map(|i| {
+                let idx = Literal::usize_unsuffixed(i);
+                quote! {
+                    if udmf.args.#idx != 0 {
+                        return Err(udmf);
+                    }
+                }
+            });
 
             quote! {
-                #udmf_value => Ok(#linedef_special::#variant { #(#field_exprs),* })
+                #udmf_value => {
+                    #(#extra_fields_checks)*
+                    Ok(#linedef_special::#variant { #(#field_exprs),* })
+                }
             }
         });
 
@@ -350,14 +400,13 @@ impl SpecialData {
             }});
 
         tokens.extend(quote! {
-
-        impl From<#linedef_special> for #udmf_special {
-            fn from(special: #linedef_special) -> Self {
-                match special {
-                    #(#match_arms,)*
+            impl From<#linedef_special> for #udmf_special {
+                fn from(special: #linedef_special) -> Self {
+                    match special {
+                        #(#match_arms,)*
+                    }
                 }
             }
-        }
         });
     }
 

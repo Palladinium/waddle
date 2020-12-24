@@ -176,15 +176,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Parser)]
 #[grammar = "map/udmf.pest"]
-struct UDMFParser;
+struct UdmfParser;
 
-trait UDMFObject: Sized {
+trait UdmfObject: Sized {
     fn parse(body: Pair<Rule>) -> Result<Self>;
-    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()>;
+    fn write<W: UdmfWriter>(&self, writer: &mut W) -> Result<()>;
 }
 
-fn parse<O: UDMFObject>(body: Pair<Rule>) -> Result<O> {
-    UDMFObject::parse(body)
+fn parse<O: UdmfObject>(body: Pair<Rule>) -> Result<O> {
+    UdmfObject::parse(body)
 }
 
 struct LineDefData {
@@ -227,8 +227,9 @@ const PLAYER_PUSH_NAME: &str = "playerpush";
 const MONSTER_PUSH_NAME: &str = "monsterpush";
 const MISSILE_CROSS_NAME: &str = "missilecross";
 const REPEATS_NAME: &str = "repeatspecial";
+const MONSTER_ACTIVATE_NAME: &str = "monsteractivate";
 
-impl UDMFObject for LineDefData {
+impl UdmfObject for LineDefData {
     fn parse(body: Pair<Rule>) -> Result<Self> {
         let mut from_idx: Option<usize> = None;
         let mut to_idx = None;
@@ -261,6 +262,7 @@ impl UDMFObject for LineDefData {
         let mut monster_push = None;
         let mut missile_cross = None;
         let mut repeats = None;
+        let mut monster_activate = None;
 
         let default_flags = line_def::Flags::default();
         let default_trigger_flags = line_def::TriggerFlags::default();
@@ -317,6 +319,9 @@ impl UDMFObject for LineDefData {
                 (MONSTER_PUSH_NAME, Value::Bool(b)) => assign_once(&mut monster_push, b, &span)?,
                 (MISSILE_CROSS_NAME, Value::Bool(b)) => assign_once(&mut missile_cross, b, &span)?,
                 (REPEATS_NAME, Value::Bool(b)) => assign_once(&mut repeats, b, &span)?,
+                (MONSTER_ACTIVATE_NAME, Value::Bool(b)) => {
+                    assign_once(&mut monster_activate, b, &span)?
+                }
 
                 (k, v) => return invalid_assignment(k, v, &span),
             }
@@ -347,7 +352,7 @@ impl UDMFObject for LineDefData {
                 already_on_map: already_on_map.unwrap_or(default_flags.already_on_map),
             },
 
-            special: line_def::UDMFSpecial {
+            special: line_def::UdmfSpecial {
                 value: special.unwrap_or(0),
                 args: (
                     arg0.unwrap_or(0),
@@ -370,11 +375,13 @@ impl UDMFObject for LineDefData {
                 monster_push: monster_push.unwrap_or(default_trigger_flags.monster_push),
                 missile_cross: missile_cross.unwrap_or(default_trigger_flags.missile_cross),
                 repeats: repeats.unwrap_or(default_trigger_flags.repeats),
+                monsters_activate: monster_activate
+                    .unwrap_or(default_trigger_flags.monsters_activate),
             },
         })
     }
 
-    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+    fn write<W: UdmfWriter>(&self, writer: &mut W) -> Result<()> {
         writer.write_block(LINE_DEF_BLOCK, |block| {
             block.write_assignment(FROM_IDX_NAME, &Value::Int(self.from_idx as i16))?;
             block.write_assignment(TO_IDX_NAME, &Value::Int(self.to_idx as i16))?;
@@ -402,7 +409,7 @@ const MIDDLE_TEXTURE_NAME: &str = "texturemiddle";
 const LOWER_TEXTURE_NAME: &str = "texturebottom";
 const DEFAULT_TEXTURE: &str = "-";
 
-impl UDMFObject for SideDefData {
+impl UdmfObject for SideDefData {
     fn parse(body: Pair<Rule>) -> Result<Self> {
         let mut offset_x = None;
         let mut offset_y = None;
@@ -453,7 +460,7 @@ impl UDMFObject for SideDefData {
         })
     }
 
-    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+    fn write<W: UdmfWriter>(&self, writer: &mut W) -> Result<()> {
         writer.write_block(SIDE_DEF_BLOCK, |block| {
             if self.offset.x != 0 {
                 block.write_assignment(OFFSET_X_NAME, &Value::Int(self.offset.x))?;
@@ -504,7 +511,7 @@ const LIGHT_LEVEL_NAME: &str = "lightlevel";
 const TAG_NAME: &str = "id";
 const DEFAULT_LIGHT_LEVEL: u8 = 160;
 
-impl UDMFObject for SectorData {
+impl UdmfObject for SectorData {
     fn parse(body: Pair<Rule>) -> Result<Self> {
         let mut floor_height = None;
         let mut ceiling_height = None;
@@ -561,7 +568,7 @@ impl UDMFObject for SectorData {
         })
     }
 
-    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+    fn write<W: UdmfWriter>(&self, writer: &mut W) -> Result<()> {
         writer.write_block(SECTOR_BLOCK, |block| {
             if self.floor_height != 0 {
                 block.write_assignment(FLOOR_HEIGHT_NAME, &Value::Int(self.floor_height))?;
@@ -600,7 +607,7 @@ const VERTEX_BLOCK: &str = "vertex";
 const X_NAME: &str = "x";
 const Y_NAME: &str = "y";
 
-impl UDMFObject for Vertex {
+impl UdmfObject for Vertex {
     fn parse(body: Pair<Rule>) -> Result<Self> {
         let mut x = None;
         let mut y = None;
@@ -632,7 +639,7 @@ impl UDMFObject for Vertex {
         })
     }
 
-    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+    fn write<W: UdmfWriter>(&self, writer: &mut W) -> Result<()> {
         writer.write_block(VERTEX_BLOCK, |block| {
             block.write_assignment(X_NAME, &Value::Float(self.position.x.into()))?;
             block.write_assignment(Y_NAME, &Value::Float(self.position.y.into()))?;
@@ -665,7 +672,7 @@ const NPC_NAME: &str = "standing";
 const TRANSLUCENT_NAME: &str = "translucent";
 const STRIFE_ALLY_NAME: &str = "strifeally";
 
-impl UDMFObject for Thing {
+impl UdmfObject for Thing {
     fn parse(body: Pair<Rule>) -> Result<Self> {
         let mut x = None;
         let mut y = None;
@@ -783,7 +790,7 @@ impl UDMFObject for Thing {
         })
     }
 
-    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+    fn write<W: UdmfWriter>(&self, writer: &mut W) -> Result<()> {
         writer.write_block(THING_BLOCK, |block| {
             if self.height != 0 {
                 block.write_assignment(HEIGHT_NAME, &Value::Int(self.height))?;
@@ -875,7 +882,7 @@ impl fmt::Display for Value {
     }
 }
 
-impl UDMFObject for Value {
+impl UdmfObject for Value {
     fn parse(pair: Pair<Rule>) -> Result<Self> {
         let span = pair.as_span();
 
@@ -898,7 +905,7 @@ impl UDMFObject for Value {
         })
     }
 
-    fn write<W: UDMFWriter>(&self, writer: &mut W) -> Result<()> {
+    fn write<W: UdmfWriter>(&self, writer: &mut W) -> Result<()> {
         Ok(write!(writer.writer(), "{}", self)?)
     }
 }
@@ -943,7 +950,7 @@ fn invalid_block<T>(ident: &str, span: &Span<'_>) -> Result<T> {
     Err(Error::InvalidBlock(ident.to_owned(), PrettyPos::new(span)))
 }
 
-trait UDMFWriter: Sized {
+trait UdmfWriter: Sized {
     type Writer: Write;
     fn writer(&mut self) -> &mut Self::Writer;
 
@@ -968,18 +975,18 @@ trait UDMFWriter: Sized {
 
     fn write_block<F>(&mut self, key: &str, mut f: F) -> Result<()>
     where
-        F: FnMut(&mut UDMFBlockWriter<Self>) -> Result<()>,
+        F: FnMut(&mut UdmfBlockWriter<Self>) -> Result<()>,
     {
-        let mut block_writer = UDMFBlockWriter(self);
+        let mut block_writer = UdmfBlockWriter(self);
         block_writer.start(key)?;
         f(&mut block_writer)?;
         block_writer.end()
     }
 }
 
-struct UDMFBlockWriter<'w, W>(&'w mut W);
+struct UdmfBlockWriter<'w, W>(&'w mut W);
 
-impl<'w, W: UDMFWriter> UDMFBlockWriter<'w, W> {
+impl<'w, W: UdmfWriter> UdmfBlockWriter<'w, W> {
     fn start(&mut self, key: &str) -> Result<()> {
         let indent = self.0.indent();
         Ok(writeln!(self.0.writer(), "{:2$}{} {{", "", key, indent)?)
@@ -991,7 +998,7 @@ impl<'w, W: UDMFWriter> UDMFBlockWriter<'w, W> {
     }
 }
 
-impl<'w, W: UDMFWriter> UDMFWriter for UDMFBlockWriter<'w, W> {
+impl<'w, W: UdmfWriter> UdmfWriter for UdmfBlockWriter<'w, W> {
     type Writer = W::Writer;
 
     fn writer(&mut self) -> &mut Self::Writer {
@@ -1003,7 +1010,7 @@ impl<'w, W: UDMFWriter> UDMFWriter for UDMFBlockWriter<'w, W> {
     }
 }
 
-impl<W: Write> UDMFWriter for W {
+impl<W: Write> UdmfWriter for W {
     type Writer = Self;
 
     fn writer(&mut self) -> &mut Self::Writer {
@@ -1056,7 +1063,7 @@ impl Map {
         let mut buf = String::new();
         reader.read_to_string(&mut buf)?;
 
-        let translation_units = UDMFParser::parse(Rule::translation_unit, &buf)?;
+        let translation_units = UdmfParser::parse(Rule::translation_unit, &buf)?;
 
         let mut namespace = None;
         let mut vertices: Vec<RcRC<Vertex>> = Vec::new();
@@ -1260,12 +1267,12 @@ mod tests {
     #[test]
     fn udmf_linedef_specials() {
         for value in i16::min_value()..=i16::max_value() {
-            let udmf_special = line_def::UDMFSpecial::new(value, (1, 2, 3, 4, 5));
+            let udmf_special = line_def::UdmfSpecial::new(value, (1, 2, 3, 4, 5));
 
             let result: std::result::Result<line_def::Special, _> = udmf_special.try_into();
 
             if let Ok(special) = result {
-                let converted: line_def::UDMFSpecial = special.into();
+                let converted: line_def::UdmfSpecial = special.into();
 
                 assert_eq!(converted.value, udmf_special.value);
 
