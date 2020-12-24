@@ -345,14 +345,12 @@ impl SpecialData {
             let udmf_value = &special.udmf_value;
             let variant = &special.ident;
             let field_exprs = special.fields.iter().enumerate().map(|(i, field)| {
-                let idx = Literal::usize_unsuffixed(i);
-                quote! { #field: udmf.args.#idx }
+                quote! { #field: udmf.args[#i] }
             });
             let fields_len = special.fields.len();
             let extra_fields_checks = (fields_len..5).map(|i| {
-                let idx = Literal::usize_unsuffixed(i);
                 quote! {
-                    if udmf.args.#idx != 0 {
+                    if udmf.args[#i] != 0 {
                         return Err(udmf);
                     }
                 }
@@ -396,7 +394,7 @@ impl SpecialData {
                 .pad_using(5, |_| quote! { 0 });
 
             quote! {
-                #linedef_special::#variant { #(#fields),* } => #udmf_special::new(#udmf_value, (#(#field_exprs),*))
+                #linedef_special::#variant { #(#fields),* } => #udmf_special::new(#udmf_value, [#(#field_exprs),*])
             }});
 
         tokens.extend(quote! {

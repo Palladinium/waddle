@@ -354,13 +354,13 @@ impl UdmfObject for LineDefData {
 
             special: line_def::UdmfSpecial {
                 value: special.unwrap_or(0),
-                args: (
+                args: [
                     arg0.unwrap_or(0),
                     arg1.unwrap_or(0),
                     arg2.unwrap_or(0),
                     arg3.unwrap_or(0),
                     arg4.unwrap_or(0),
-                ),
+                ],
             }
             .try_into()
             .map_err(|_| Error::LineDefSpecial(special.unwrap(), PrettyPos::new(&body_span)))?,
@@ -1267,29 +1267,20 @@ mod tests {
     #[test]
     fn udmf_linedef_specials() {
         for value in i16::min_value()..=i16::max_value() {
-            let udmf_special = line_def::UdmfSpecial::new(value, (1, 2, 3, 4, 5));
+            for args_len in 0..5 {
+                let mut args = [0; 5];
 
-            let result: std::result::Result<line_def::Special, _> = udmf_special.try_into();
+                for i in 0..args_len {
+                    args[i] = 1;
+                }
 
-            if let Ok(special) = result {
-                let converted: line_def::UdmfSpecial = special.into();
+                let udmf_special = line_def::UdmfSpecial::new(value, args);
 
-                assert_eq!(converted.value, udmf_special.value);
+                let result: std::result::Result<line_def::Special, _> = udmf_special.try_into();
 
-                if converted.args.0 != 0 {
-                    assert_eq!(converted.args.0, udmf_special.args.0);
-                }
-                if converted.args.1 != 0 {
-                    assert_eq!(converted.args.1, udmf_special.args.1);
-                }
-                if converted.args.2 != 0 {
-                    assert_eq!(converted.args.2, udmf_special.args.2);
-                }
-                if converted.args.3 != 0 {
-                    assert_eq!(converted.args.3, udmf_special.args.3);
-                }
-                if converted.args.4 != 0 {
-                    assert_eq!(converted.args.4, udmf_special.args.4);
+                if let Ok(special) = result {
+                    let converted: line_def::UdmfSpecial = special.into();
+                    assert_eq!(converted, udmf_special);
                 }
             }
         }

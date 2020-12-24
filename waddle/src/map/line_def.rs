@@ -2002,11 +2002,11 @@ impl Default for Special {
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct UdmfSpecial {
     pub value: i16,
-    pub args: (i16, i16, i16, i16, i16),
+    pub args: [i16; 5],
 }
 
 impl UdmfSpecial {
-    pub fn new(value: i16, args: (i16, i16, i16, i16, i16)) -> Self {
+    pub fn new(value: i16, args: [i16; 5]) -> Self {
         Self { value, args }
     }
 }
