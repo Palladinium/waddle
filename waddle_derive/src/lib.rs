@@ -203,7 +203,8 @@ impl AttrArgs {
 
 impl Parse for AttrArgs {
     fn parse(input: ParseStream) -> Result<Self> {
-        let args: Punctuated<AttrArg, Token![,]> = input.parse_terminated(AttrArg::parse)?;
+        let args: Punctuated<AttrArg, Token![,]> =
+            input.parse_terminated(AttrArg::parse, Token![,])?;
 
         Ok(Self {
             span: args.span(),
@@ -232,7 +233,7 @@ impl<T: Parse> Parse for Tuple<T> {
 
         Ok(Self {
             _paren_token: parenthesized!(contents in input),
-            items: contents.parse_terminated(T::parse)?,
+            items: contents.parse_terminated(T::parse, Token![,])?,
         })
     }
 }
@@ -254,7 +255,7 @@ impl<T: Parse> Parse for Array<T> {
 
         Ok(Self {
             _bracket_token: bracketed!(contents in input),
-            items: contents.parse_terminated(T::parse)?,
+            items: contents.parse_terminated(T::parse, Token![,])?,
         })
     }
 }
@@ -299,8 +300,8 @@ fn parse_attribute<T: Parse>(name: &str, attributes: &[Attribute], span: Span) -
 fn try_parse_attribute<T: Parse>(name: &str, attributes: &[Attribute]) -> Result<Option<T>> {
     attributes
         .iter()
-        .find(|a| a.path.is_ident(&Ident::new(name, Span::call_site())))
-        .map(|a| syn::parse2::<ParenAttribute<T>>(a.tokens.clone()).map(|a| a.value))
+        .find(|a| a.path().is_ident(&Ident::new(name, Span::call_site())))
+        .map(|a| syn::parse2::<T>(a.meta.require_list()?.tokens.clone()))
         .transpose()
 }
 
@@ -310,34 +311,20 @@ fn collect_attributes<'a, T: Parse>(
 ) -> impl Iterator<Item = Result<T>> + 'a {
     attributes
         .iter()
-        .filter(move |a| a.path.is_ident(&Ident::new(name, Span::call_site())))
-        .map(|a| syn::parse2::<ParenAttribute<T>>(a.tokens.clone()).map(|a| a.value))
-}
-
-struct ParenAttribute<T> {
-    value: T,
-}
-
-impl<T: Parse> Parse for ParenAttribute<T> {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let contents;
-        let _paren_token: token::Paren = parenthesized!(contents in input);
-        Ok(Self {
-            value: contents.parse()?,
-        })
-    }
+        .filter(move |a| a.path().is_ident(&Ident::new(name, Span::call_site())))
+        .map(|a| syn::parse2::<T>(a.meta.require_list()?.tokens.clone()))
 }
 
 impl ToTokens for SpecialData {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.from_udmf_tokens(tokens);
-        self.into_udmf_tokens(tokens);
-        self.from_doom_tokens(tokens);
+        self.gen_from_udmf_tokens(tokens);
+        self.gen_into_udmf_tokens(tokens);
+        self.gen_from_doom_tokens(tokens);
     }
 }
 
 impl SpecialData {
-    fn from_udmf_tokens(&self, tokens: &mut TokenStream) {
+    fn gen_from_udmf_tokens(&self, tokens: &mut TokenStream) {
         let udmf_special = &self.udmf_special;
         let linedef_special = &self.linedef_special;
 
@@ -379,7 +366,7 @@ impl SpecialData {
         });
     }
 
-    fn into_udmf_tokens(&self, tokens: &mut TokenStream) {
+    fn gen_into_udmf_tokens(&self, tokens: &mut TokenStream) {
         let udmf_special = &self.udmf_special;
         let linedef_special = &self.linedef_special;
 
@@ -408,7 +395,7 @@ impl SpecialData {
         });
     }
 
-    fn from_doom_tokens(&self, tokens: &mut TokenStream) {
+    fn gen_from_doom_tokens(&self, tokens: &mut TokenStream) {
         let doom_special = &self.doom_special;
         let linedef_special = &self.linedef_special;
         let trigger_flags = &self.trigger_flags;

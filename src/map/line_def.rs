@@ -1,17 +1,27 @@
 use bitfield::Bit;
+use slotmap::SlotMap;
 use waddle_derive::LineDefSpecial;
 
-use crate::{
-    map::{SideDef, Vertex},
-    util::RcRC,
-};
+use crate::map::{side_def::SideDefKey, vertex::VertexKey};
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawLineDef {
+    pub from_idx: u16,
+    pub to_idx: u16,
+    pub left_side_idx: u16,
+    pub right_side_idx: Option<u16>,
+
+    pub flags: Flags,
+    pub special: Special,
+    pub trigger_flags: TriggerFlags,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LineDef {
-    pub from: RcRC<Vertex>,
-    pub to: RcRC<Vertex>,
-    pub left_side: RcRC<SideDef>,
-    pub right_side: Option<RcRC<SideDef>>,
+    pub from: VertexKey,
+    pub to: VertexKey,
+    pub left_side: SideDefKey,
+    pub right_side: Option<SideDefKey>,
 
     pub flags: Flags,
     pub special: Special,
@@ -19,7 +29,7 @@ pub struct LineDef {
 }
 
 /// Boolean flags associated with a `LineDef`
-#[derive(Default, PartialEq, Eq, Hash, Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Flags {
     pub impassable: bool,
     pub blocks_monsters: bool,
@@ -69,7 +79,7 @@ impl From<Flags> for i16 {
 }
 
 /// Flags determining how a `LineDef` `Special` may be triggered
-#[derive(Default, PartialEq, Eq, Hash, Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct TriggerFlags {
     pub player_cross: bool,
     pub player_use: bool,
@@ -85,14 +95,16 @@ pub struct TriggerFlags {
     pub monsters_activate: bool,
 }
 
+// TODO: This should preserve unused args
 /// A special action associated with a `LineDef` or a `Thing`. Can also be called as functions in scripts.
-#[derive(PartialEq, Eq, Hash, Debug, LineDefSpecial)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, LineDefSpecial)]
 #[doom_special(DoomSpecial)]
 #[udmf_special(UdmfSpecial)]
 #[trigger_flags(TriggerFlags)]
 pub enum Special {
     #[udmf(0)]
     #[doom(id = 0, args = (), triggers = [])]
+    #[default]
     None,
 
     #[udmf(1)]
@@ -1992,12 +2004,6 @@ pub enum Special {
     },
 }
 
-impl Default for Special {
-    fn default() -> Self {
-        Special::None
-    }
-}
-
 /// A `Special` representation in the UDMF format
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct UdmfSpecial {
@@ -2023,3 +2029,7 @@ impl DoomSpecial {
         Self { value, tag }
     }
 }
+
+slotmap::new_key_type! { pub struct LineDefKey; }
+
+pub type LineDefMap = SlotMap<LineDefKey, LineDef>;

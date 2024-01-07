@@ -2,13 +2,13 @@
 name = "waddle_derive"
 version = "0.0.0"
 authors = ["Patrick Chieppe <patrick.chieppe@hotmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-itertools = "0.9.0"
+itertools = "0.12.0"
 proc-macro2 = "1.0.24"
-proc-quote = "0.3.2"
-syn = { version = "1.0.54", features = ["full"] }
+proc-quote = "0.4.0"
+syn = { version = "2.0.39", features = ["full"] }

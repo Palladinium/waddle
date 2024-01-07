@@ -1,11 +1,11 @@
 use std::convert::TryFrom;
 
-use crate::{map::SideDef, util::RcRC, String8};
+use slotmap::SlotMap;
 
-#[derive(Default, PartialEq, Eq, Debug)]
+use crate::String8;
+
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct Sector {
-    pub sides: Vec<RcRC<SideDef>>,
-
     pub floor_height: i16,
     pub ceiling_height: i16,
     pub floor_flat: String8,
@@ -15,8 +15,9 @@ pub struct Sector {
     pub tag: i16,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(Clone, Copy,Debug, Default, PartialEq, Eq)]
 pub enum Special {
+    #[default]
     None,
 }
 
@@ -39,8 +40,6 @@ impl TryFrom<i16> for Special {
     }
 }
 
-impl Default for Special {
-    fn default() -> Self {
-        Special::None
-    }
-}
+slotmap::new_key_type! { pub struct SectorKey; }
+
+pub type SectorMap = SlotMap<SectorKey, Sector>;

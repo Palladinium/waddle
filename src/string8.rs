@@ -1,10 +1,9 @@
 use std::{
     convert::TryFrom,
-    fmt::{self, Display, Formatter},
     str::{self, Utf8Error},
 };
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct String8([u8; 8]);
 
 impl String8 {
@@ -12,26 +11,28 @@ impl String8 {
         Self(bytes)
     }
 
-    pub fn from_str(s: &str) -> Result<Self, IntoString8Error> {
+    pub fn new(s: &str) -> Result<Self, IntoString8Error> {
         Self::from_bytes(s.as_bytes())
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, IntoString8Error> {
         if bytes.len() > 8 {
-            Err(IntoString8Error::Len(bytes.len()))
-        } else if let Some(p) = bytes
-            .into_iter()
+            Err(IntoString8Error::Len {
+                length: bytes.len(),
+            })
+        } else if let Some(position) = bytes
+            .iter()
             .rev()
             .skip_while(|b| **b == 0)
             .position(|b| *b == 0)
         {
-            Err(IntoString8Error::Nul(p))
+            Err(IntoString8Error::Nul { position })
         } else {
             Ok(Self::from_bytes_unchecked(bytes))
         }
     }
 
-    pub fn from_str_unchecked(s: &str) -> Self {
+    pub fn new_unchecked(s: &str) -> Self {
         Self::from_bytes_unchecked(s.as_bytes())
     }
 
@@ -47,28 +48,19 @@ impl String8 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum IntoString8Error {
-    Nul(usize),
-    Len(usize),
+    #[error("Inner null byte at position {position}")]
+    Nul { position: usize },
+    #[error("Longer than 8 bytes ({length} bytes)")]
+    Len { length: usize },
 }
-
-impl Display for IntoString8Error {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            IntoString8Error::Nul(p) => write!(f, "Inner null byte at position {}", p),
-            IntoString8Error::Len(p) => write!(f, "String is longer than 8 bytes ({} bytes)", p),
-        }
-    }
-}
-
-impl std::error::Error for IntoString8Error {}
 
 impl TryFrom<&str> for String8 {
     type Error = IntoString8Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
+        Self::new(s)
     }
 }
 

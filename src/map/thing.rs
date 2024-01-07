@@ -1,6 +1,8 @@
+use slotmap::SlotMap;
+
 use crate::Point;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Flags {
     pub skill1: bool,
     pub skill2: bool,
@@ -55,18 +57,14 @@ impl Flags {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Special {
+    #[default]
     None,
+    // TODO: The rest of them
 }
 
-impl Default for Special {
-    fn default() -> Self {
-        Special::None
-    }
-}
-
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct Thing {
     pub position: Point,
     pub height: i16,
@@ -75,3 +73,7 @@ pub struct Thing {
     pub flags: Flags,
     pub special: Special,
 }
+
+slotmap::new_key_type! { pub struct ThingKey; }
+
+pub type ThingMap = SlotMap<ThingKey, Thing>;
