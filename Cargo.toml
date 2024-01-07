@@ -14,10 +14,7 @@ winnow = "0.5.26"
 bilge = "0.2.0"
 
 # TODO: Remove
-generational-arena = "0.2.2"
 bitfield = "0.13.1"
-pest = "2.1.0"
-pest_derive = "2.1.0"
 
 waddle_derive = { path = "waddle_derive" }
 miette = "5.10.0"
